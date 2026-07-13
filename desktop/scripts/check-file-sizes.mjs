@@ -165,7 +165,9 @@ const overrides = new Map([
   // setup-mode requirements. The Windows-only requirement and serialization
   // test add eight lines; split remains queued with the existing file debt.
   // Windows Doctor install fix: cli_install_commands_windows field added to test stubs.
-  ["src-tauri/src/managed_agents/readiness.rs", 1764],
+  // +1: buzz-agent-mcp-servers: mcp_servers: vec![] added to the minimal
+  // ManagedAgentRecord test fixture (new required field, not a behavior change).
+  ["src-tauri/src/managed_agents/readiness.rs", 1765],
   // applyWorkspace reposDir parameter plus the validateReposDir binding,
   // threaded through Tauri invokes for configurable repos_dir, plus the
   // harness-persona-sync `harnessOverride` create-input bit — load-bearing
@@ -402,7 +404,11 @@ const overrides = new Map([
   // is_safe_to_reveal allowlist + baked_env_thinking_effort_is_unmasked test.
   // +1: doctor-install-reliability: login_hint: None added to goose_runtime test stub.
   // +1: doctor-install-reliability review fixes: auth_probe_args: None added to stub.
-  ["src-tauri/src/commands/agent_config.rs", 1021],
+  // +117: buzz-agent-mcp-servers PR3 P0: resolve_config_surface takes an
+  // effective_command param and populates the new buzz_agent_mcp_servers
+  // surface field for the buzz-agent runtime; 3 new coverage tests
+  // (effective-merge, disabled-mask, non-buzz-agent-runtime-empty).
+  ["src-tauri/src/commands/agent_config.rs", 1138],
   // codex-install-auto-restart review-fixes: should_restart_after_install
   // takes pid_alive:bool (pure predicate, no OS-dependent call); 3 racy
   // cache tests replaced with 6 pure availability_drift predicate tests;
