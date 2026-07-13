@@ -280,7 +280,8 @@ const overrides = new Map([
   // candidates, cli_install_commands_for_os PowerShell selection, login_shell_path
   // None regression, .cmd shim resolution, no-git-bash error hint.
   // +32: deterministic .cmd resolver + no-registry + install_shell_from tests.
-  ["src-tauri/src/managed_agents/discovery/tests.rs", 1270],
+  // Rebase added two required `mcp_servers` fixture fields after main reached 1270.
+  ["src-tauri/src/managed_agents/discovery/tests.rs", 1272],
   // identity-import-keyring: the identity resolution state machine's behavioral
   // matrix (46 tests over FakeIdentityStore — probe × marker × file cells,
   // adoption / read-back-corruption / marker-failure arms, recovery-mode
