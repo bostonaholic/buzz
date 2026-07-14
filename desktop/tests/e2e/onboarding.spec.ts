@@ -1577,6 +1577,11 @@ test("membership denied shows all four affordances and change-workspace edits no
   // so we wait for the "Use anyway" button.
   await overlay.locator("#ws-edit-url").fill("wss://new-relay.example.com");
   await overlay.getByRole("button", { name: "Save changes" }).click();
+
+  // The fields are frozen while the probe is pending, so the saved URL and
+  // any warning cannot get out of sync with a subsequent edit.
+  await expect(overlay.locator("#ws-edit-url")).toBeDisabled();
+  await expect(overlay.locator("#ws-edit-name")).toBeDisabled();
   await expect(
     overlay.getByRole("button", { name: "Use anyway" }),
   ).toBeVisible();
