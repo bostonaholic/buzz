@@ -42,8 +42,8 @@ export function SidebarProfileCard({
   isPresencePending,
   onOpenAddCommunity,
   onOpenSettings,
-  onSendFeedback?: () => void;
-  onRemoveCommunity: (id: string) => void;
+  onSendFeedback,
+  onRemoveCommunity,
   onSetPresenceStatus,
   onSetUserStatus,
   onClearUserStatus,

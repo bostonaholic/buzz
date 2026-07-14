@@ -55,7 +55,6 @@ import { useArchiveSync } from "@/features/local-archive/archiveSyncManager";
 import { useObserverArchiveSeed } from "@/features/local-archive/useObserverArchiveSeed";
 import { useAgentMetricArchiveSeed } from "@/features/local-archive/useAgentMetricArchiveSeed";
 import { useProfileQuery } from "@/features/profile/hooks";
-import { FEEDBACK_ENABLED } from "@/features/settings/hooks/useSendFeedback";
 import { SendFeedbackController } from "@/features/settings/ui/SendFeedbackController";
 import {
   DEFAULT_SETTINGS_SECTION,
@@ -928,12 +927,10 @@ export function AppShell() {
                         void goChannel(channelId);
                       }}
                     />
-                    {FEEDBACK_ENABLED ? (
-                      <SendFeedbackController
-                        onOpenChange={setIsSendFeedbackOpen}
-                        open={isSendFeedbackOpen}
-                      />
-                    ) : null}
+                    <SendFeedbackController
+                      onOpenChange={setIsSendFeedbackOpen}
+                      open={isSendFeedbackOpen}
+                    />
                   </SidebarProvider>
                 </div>
 

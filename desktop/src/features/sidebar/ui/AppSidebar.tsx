@@ -189,8 +189,8 @@ export function AppSidebar({
   onAddCommunityOpenChange,
   onCreateChannel,
   onCreateForum,
-  onOpenAddCommunity: () => void;
-  onSendFeedback?: () => void;
+  onOpenAddCommunity,
+  onSendFeedback,
   onHideDm,
   onMarkChannelUnread,
   onMarkChannelRead,
@@ -837,8 +837,8 @@ export function AppSidebar({
                   isPresencePending={isPresencePending}
                   onOpenAddCommunity={onOpenAddCommunity}
                   onOpenSettings={onSelectSettings}
-  onOpenAddCommunity,
-  onSendFeedback,
+                  onSendFeedback={onSendFeedback}
+                  onRemoveCommunity={onRemoveCommunity}
                   onSetPresenceStatus={onSetPresenceStatus}
                   onSetUserStatus={onSetUserStatus}
                   onClearUserStatus={onClearUserStatus}
