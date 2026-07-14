@@ -26,6 +26,7 @@ import { AvatarStep } from "./AvatarStep";
 import { BackupStep } from "./BackupStep";
 import { MembershipDenied } from "./MembershipDenied";
 import { NostrKeyImportForm } from "./NostrKeyImportForm";
+import { useWorkspaces } from "@/features/workspaces/useWorkspaces";
 import { WorkspaceChangeOverlay } from "@/features/workspaces/ui/WorkspaceChangeOverlay";
 import {
   type OnboardingTransitionDirection,
@@ -150,6 +151,8 @@ export function OnboardingFlow({
   initialProfile,
 }: OnboardingFlowProps) {
   const { complete, skipForNow } = actions;
+  const { activeWorkspace, workspaces, updateWorkspace, switchWorkspace } =
+    useWorkspaces();
   const queryClient = useQueryClient();
   const savedProfile = resolveSavedProfile(initialProfile);
   const profileUpdateMutation = useUpdateProfileMutation();
@@ -472,16 +475,50 @@ export function OnboardingFlow({
     }
   }, [queryClient]);
 
+  const handleInviteRedeemed = React.useCallback(
+    (relayWsUrl: string) => {
+      if (!activeWorkspace) return;
+      // Same-relay: membership claim updated this relay — just retry.
+      if (relayWsUrl === activeWorkspace.relayUrl) {
+        void saveProfileAndContinue(membershipRetryPage);
+        return;
+      }
+      // Cross-relay: point the active workspace at the invite's relay.
+      // If that relay already exists as another workspace, switch to it.
+      const result = updateWorkspace(activeWorkspace.id, {
+        relayUrl: relayWsUrl,
+      });
+      if (result.kind === "duplicate-relay") {
+        const existing = workspaces.find((w) => w.relayUrl === relayWsUrl);
+        if (existing) {
+          switchWorkspace(existing.id);
+        }
+      }
+      // On "updated", the reinitKey bump triggers a remount that re-runs the
+      // membership gate automatically.
+    },
+    [
+      activeWorkspace,
+      membershipRetryPage,
+      saveProfileAndContinue,
+      switchWorkspace,
+      updateWorkspace,
+      workspaces,
+    ],
+  );
+
   if (currentPage === "membership-denied") {
     return (
       <>
         <MembershipDenied
+          activeRelayUrl={activeWorkspace?.relayUrl ?? ""}
           onBack={() => {
             setTransitionDirection("backward");
             setCurrentPage(deniedFromPage);
           }}
           onChangeWorkspace={() => setIsWorkspaceChangeOpen(true)}
           onImportKey={importExistingKey}
+          onInviteRedeemed={handleInviteRedeemed}
           onRetry={() => {
             void saveProfileAndContinue(membershipRetryPage);
           }}
