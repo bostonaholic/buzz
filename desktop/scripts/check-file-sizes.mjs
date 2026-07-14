@@ -80,7 +80,9 @@ const overrides = new Map([
   // retry-safety. Load-bearing reviewer-required change; queued to split.
   // Consolidation removed the legacy persona-card import/export codecs.
   // +6: local-only MCP layer validation/update wiring. Load-bearing; queued to split.
-  ["src-tauri/src/commands/personas/mod.rs", 990],
+  // +25: inherited-layer effective-cap save gate (persona update cross-checks
+  // existing agents before persisting MCP changes). Load-bearing correctness fix.
+  ["src-tauri/src/commands/personas/mod.rs", 1015],
   // #1418 read-path fix: get_thread_replies' blocker fix (shared TIMELINE_KINDS
   // const + build_thread_replies_filter helper, mirroring the channel sibling so
   // the two p-gate filters can't drift) plus two guard unit tests. The file was
@@ -418,7 +420,8 @@ const overrides = new Map([
   // effective_command param and populates the new buzz_agent_mcp_servers
   // surface field for the buzz-agent runtime; 3 new coverage tests
   // (effective-merge, disabled-mask, non-buzz-agent-runtime-empty).
-  ["src-tauri/src/commands/agent_config.rs", 1138],
+  // +1: rebase over Windows Doctor (#1854) — login_hint: None added to goose_runtime stub.
+  ["src-tauri/src/commands/agent_config.rs", 1139],
   // codex-install-auto-restart review-fixes: should_restart_after_install
   // takes pid_alive:bool (pure predicate, no OS-dependent call); 3 racy
   // cache tests replaced with 6 pure availability_drift predicate tests;
