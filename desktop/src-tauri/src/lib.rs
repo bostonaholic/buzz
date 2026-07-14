@@ -40,17 +40,18 @@ use huddle::{
     join_huddle, leave_huddle, push_audio_pcm, set_huddle_transcription_enabled, set_tts_enabled,
     set_voice_input_mode, speak_agent_message, start_huddle, start_stt_pipeline,
 };
-use managed_agents::{
-    backfill_persona_snapshots, ensure_nest, restore_managed_agents_on_launch, try_regenerate_nest,
-};
+use managed_agents::{backfill_persona_snapshots, ensure_nest, try_regenerate_nest};
 use shutdown::shutdown_managed_agents;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tauri::{Emitter, Listener, Manager, RunEvent};
+#[cfg(target_os = "macos")]
+use tauri::Listener;
+use tauri::{Emitter, Manager, RunEvent};
 use tauri_plugin_window_state::StateFlags;
 
+#[cfg(target_os = "macos")]
 const INITIAL_RENDER_READY_EVENT: &str = "initial-render-ready";
 
 #[tauri::command]
@@ -401,8 +402,6 @@ pub fn run() {
     #[cfg(not(buzz_updater_enabled))]
     let builder = builder;
 
-    let shutdown_started = Arc::new(AtomicBool::new(false));
-    let restore_shutdown_started = Arc::clone(&shutdown_started);
     let app = builder
         .register_asynchronous_uri_scheme_protocol("buzz-media", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -415,7 +414,6 @@ pub fn run() {
         .manage(commands::pairing::PairingHandle::new())
         .setup(move |app| {
             let app_handle = app.handle().clone();
-            let shutdown_started = Arc::clone(&restore_shutdown_started);
 
             // Run all pre-identity data migrations before state loads from disk.
             migration::run_boot_migrations(&app_handle);
@@ -574,22 +572,16 @@ pub fn run() {
                 });
             }
 
-            // Keep launch-time agent restoration off the synchronous setup path
-            // so the frontend can mount and reveal the window promptly. Gated on
-            // the boot-time repos symlink result (see restore_agents above):
-            // skip when a configured repos_dir could not be resolved, so no
-            // agent clones into a REPOS that isn't the user's target.
-            // Also skipped in recovery mode — agents must not be spawned
-            // under an ephemeral owner key.
+            // Defer launch-time agent restoration until `apply_workspace` has
+            // installed the active workspace relay and identity. Starting here
+            // would race React initialization and send agents whose saved record
+            // has no relay override to the localhost fallback. Preserve the
+            // boot-time repos and identity recovery safety gates by only marking
+            // restoration pending when both allow it.
             if restore_agents && !recovery_mode {
-                tauri::async_runtime::spawn(async move {
-                    if let Err(error) =
-                        restore_managed_agents_on_launch(&app_handle, shutdown_started.as_ref())
-                            .await
-                    {
-                        eprintln!("buzz-desktop: failed to restore managed agents: {error}");
-                    }
-                });
+                state
+                    .managed_agent_restore_pending
+                    .store(true, Ordering::Release);
             }
 
             // Periodic sweep: reap orphaned agents from dead instances every 60s.
@@ -694,6 +686,7 @@ pub fn run() {
             get_media_proxy_port,
             fetch_link_preview_title,
             discover_acp_providers,
+            discover_git_bash_prerequisite,
             install_acp_runtime,
             discover_managed_agent_prereqs,
             sign_event,
@@ -897,9 +890,11 @@ pub fn run() {
     {
         let signal_app = app.handle().clone();
         let signal_shutdown_done = Arc::clone(&shutdown_done);
-        let signal_shutdown_started = Arc::clone(&shutdown_started);
         if let Err(e) = ctrlc::set_handler(move || {
-            signal_shutdown_started.store(true, Ordering::SeqCst);
+            signal_app
+                .state::<AppState>()
+                .shutdown_started
+                .store(true, Ordering::SeqCst);
             if !signal_shutdown_done.swap(true, Ordering::SeqCst) {
                 let _ = shutdown_managed_agents(&signal_app);
             }
@@ -912,7 +907,10 @@ pub fn run() {
     let run_shutdown_done = Arc::clone(&shutdown_done);
     app.run(move |app_handle, event| match event {
         RunEvent::ExitRequested { .. } | RunEvent::Exit => {
-            shutdown_started.store(true, Ordering::SeqCst);
+            app_handle
+                .state::<AppState>()
+                .shutdown_started
+                .store(true, Ordering::SeqCst);
             if !run_shutdown_done.swap(true, Ordering::SeqCst) {
                 prevent_sleep::release(&app_handle.state::<AppState>().prevent_sleep);
                 if let Err(error) = shutdown_managed_agents(app_handle) {

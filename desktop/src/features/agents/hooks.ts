@@ -5,17 +5,24 @@ import {
   attachManagedAgentToChannel,
   createChannelManagedAgents,
   ensureChannelAgentPresetInChannel,
+  provisionChannelManagedAgent,
 } from "@/features/agents/channelAgents";
-import { channelsQueryKey } from "@/features/channels/hooks";
+import { resolveSnapshotAvatarPng } from "@/features/agents/ui/snapshotAvatarPng";
+import {
+  channelsQueryKey,
+  upsertCachedChannelMember,
+} from "@/features/channels/hooks";
 import { evictUsersBatchEntries } from "@/features/profile/hooks";
 import {
   createManagedAgent,
   deleteManagedAgent,
   discoverAcpRuntimes,
   discoverBackendProviders,
+  discoverGitBashPrerequisite,
   discoverManagedAgentPrereqs,
   getAgentConfigSurface,
   getBakedBuildEnvKeys,
+  getChannelMembers,
   getManagedAgentLog,
   getRuntimeFileConfig,
   installAcpRuntime,
@@ -56,6 +63,7 @@ import type {
   AcpRuntime,
   AgentPersona,
   AgentTeam,
+  Channel,
   CreateManagedAgentInput,
   CreatePersonaInput,
   CreateTeamInput,
@@ -64,6 +72,7 @@ import type {
   UpdatePersonaInput,
   UpdateTeamInput,
 } from "@/shared/api/types";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import type {
   AttachManagedAgentToChannelInput,
   CreateChannelManagedAgentInput,
@@ -71,6 +80,7 @@ import type {
   CreateChannelManagedAgentResult,
   EnsureChannelAgentPresetInput,
   EnsureChannelAgentPresetResult,
+  ProvisionChannelManagedAgentResult,
 } from "@/features/agents/channelAgents";
 export { findReusableAgent } from "@/features/agents/agentReuse";
 export type {
@@ -82,6 +92,7 @@ export type {
   CreateChannelManagedAgentResult,
   EnsureChannelAgentPresetInput,
   EnsureChannelAgentPresetResult,
+  ProvisionChannelManagedAgentResult,
 } from "@/features/agents/channelAgents";
 
 export const relayAgentsQueryKey = ["relay-agents"] as const;
@@ -91,15 +102,24 @@ export const teamsQueryKey = ["teams"] as const;
 export const acpRuntimesQueryKey = ["acp-runtimes"] as const;
 export const managedAgentPrereqsQueryKey = ["managed-agent-prereqs"] as const;
 export const backendProvidersQueryKey = ["backend-providers"] as const;
+export const gitBashPrerequisiteQueryKey = ["git-bash-prerequisite"] as const;
+
+type InvalidateAgentQueriesOptions = {
+  refetchChannels?: boolean;
+};
 
 async function invalidateAgentQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   channelId: string | null,
+  options: InvalidateAgentQueriesOptions = {},
 ) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey }),
     queryClient.invalidateQueries({ queryKey: relayAgentsQueryKey }),
-    queryClient.invalidateQueries({ queryKey: channelsQueryKey }),
+    queryClient.invalidateQueries({
+      queryKey: channelsQueryKey,
+      refetchType: options.refetchChannels === false ? "none" : "active",
+    }),
     ...(channelId
       ? [
           queryClient.invalidateQueries({
@@ -119,9 +139,27 @@ function refreshAgentQueriesInBackground(task: () => Promise<unknown>) {
 function invalidateAgentQueriesInBackground(
   queryClient: ReturnType<typeof useQueryClient>,
   channelId: string | null,
+  options?: InvalidateAgentQueriesOptions,
 ) {
   refreshAgentQueriesInBackground(() =>
-    invalidateAgentQueries(queryClient, channelId),
+    invalidateAgentQueries(queryClient, channelId, options),
+  );
+}
+
+function isCachedDmChannel(
+  queryClient: ReturnType<typeof useQueryClient>,
+  channelId: string | null,
+) {
+  if (!channelId) {
+    return false;
+  }
+
+  return Boolean(
+    queryClient
+      .getQueryData<Channel[]>(channelsQueryKey)
+      ?.some(
+        (channel) => channel.id === channelId && channel.channelType === "dm",
+      ),
   );
 }
 
@@ -165,6 +203,14 @@ export function useInstallAcpRuntimeMutation() {
       void queryClient.invalidateQueries({ queryKey: acpRuntimesQueryKey });
       void queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
     },
+  });
+}
+
+export function useGitBashPrerequisiteQuery() {
+  return useQuery({
+    queryKey: gitBashPrerequisiteQueryKey,
+    queryFn: discoverGitBashPrerequisite,
+    staleTime: 15_000,
   });
 }
 
@@ -513,13 +559,33 @@ export function useAttachManagedAgentToChannelMutation(
 
       return attachManagedAgentToChannel(effectiveChannelId, rest);
     },
+    onSuccess: (result, variables) => {
+      const effectiveChannelId = variables.channelId ?? channelId;
+      if (!effectiveChannelId) {
+        return;
+      }
+
+      queryClient.setQueryData<Channel[]>(channelsQueryKey, (current) =>
+        upsertCachedChannelMember(current, effectiveChannelId, {
+          membershipAdded: result.membershipAdded,
+          name: result.agent.name,
+          pubkey: result.agent.pubkey,
+        }),
+      );
+    },
     onSettled: (_data, _err, variables) => {
       // Invalidate the effective channel (the one the server actually mutated)
       // so its membership/agent state stays fresh. Invalidating the live
       // hook-closure channelId when the user has already switched away would
       // leave the compose-time channel stale.
       const effectiveChannelId = variables?.channelId ?? channelId;
-      invalidateAgentQueriesInBackground(queryClient, effectiveChannelId);
+      // Stream membership is already applied to channelsQueryKey by onSuccess,
+      // so avoid replacing it with a lagged snapshot. DM membership is
+      // immutable: adding the agent creates a separate conversation, so refresh
+      // the list to discover that target instead of decorating the source DM.
+      invalidateAgentQueriesInBackground(queryClient, effectiveChannelId, {
+        refetchChannels: isCachedDmChannel(queryClient, effectiveChannelId),
+      });
     },
   });
 }
@@ -567,9 +633,75 @@ export function useCreateChannelManagedAgentMutation(channelId: string | null) {
       const failure = result.failures[0];
       throw new Error(failure?.error ?? "Could not create agent.");
     },
+    onSuccess: (result, variables) => {
+      const effectiveChannelId = variables.channelId ?? channelId;
+      if (!effectiveChannelId) {
+        return;
+      }
+
+      queryClient.setQueryData<Channel[]>(channelsQueryKey, (current) =>
+        upsertCachedChannelMember(current, effectiveChannelId, {
+          membershipAdded: result.membershipAdded,
+          name: result.agent.name,
+          pubkey: result.agent.pubkey,
+        }),
+      );
+    },
     onSettled: (_data, _err, variables) => {
       const effectiveChannelId = variables?.channelId ?? channelId;
-      invalidateAgentQueriesInBackground(queryClient, effectiveChannelId);
+      // Stream membership is already applied to channelsQueryKey by onSuccess,
+      // while immutable DM membership produces a separate conversation that
+      // must be discovered by refetching the channel list.
+      invalidateAgentQueriesInBackground(queryClient, effectiveChannelId, {
+        refetchChannels: isCachedDmChannel(queryClient, effectiveChannelId),
+      });
+    },
+  });
+}
+
+export function useProvisionChannelManagedAgentMutation(
+  channelId: string | null,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (
+      input: CreateChannelManagedAgentInput & { channelId?: string },
+    ): Promise<ProvisionChannelManagedAgentResult> => {
+      const { channelId: capturedChannelId, ...rest } = input;
+      const effectiveChannelId = capturedChannelId ?? channelId;
+      if (!effectiveChannelId) {
+        throw new Error("No channel selected.");
+      }
+
+      const [managedAgents, members] = await Promise.all([
+        listManagedAgents(),
+        getChannelMembers(effectiveChannelId),
+      ]);
+      return provisionChannelManagedAgent(rest, {
+        managedAgents,
+        channelMemberPubkeys: new Set(
+          members.map((member) => normalizePubkey(member.pubkey)),
+        ),
+      });
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData<ManagedAgent[]>(
+        managedAgentsQueryKey,
+        (current) => {
+          const next = current ?? [];
+          return [
+            result.agent,
+            ...next.filter((agent) => agent.pubkey !== result.agent.pubkey),
+          ];
+        },
+      );
+    },
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: relayAgentsQueryKey }),
+      ]);
     },
   });
 }
@@ -597,17 +729,31 @@ export function useCreateChannelManagedAgentsMutation(
 
 export function useExportAgentSnapshotMutation() {
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       id,
       memoryLevel,
       format,
       memorySourcePubkey,
+      avatarUrl,
     }: {
       id: string;
       memoryLevel: SnapshotMemoryLevel;
       format: SnapshotFormat;
       memorySourcePubkey?: string | null;
-    }) => exportAgentSnapshot(id, memoryLevel, format, memorySourcePubkey),
+      avatarUrl?: string | null;
+    }) => {
+      const avatarPngDataUrl =
+        format === "png"
+          ? await resolveSnapshotAvatarPng(avatarUrl)
+          : undefined;
+      return exportAgentSnapshot(
+        id,
+        memoryLevel,
+        format,
+        memorySourcePubkey,
+        avatarPngDataUrl,
+      );
+    },
   });
 }
 
@@ -618,13 +764,21 @@ export function useEncodeAgentSnapshotForSendMutation() {
       memoryLevel,
       format,
       memorySourcePubkey,
+      avatarPngDataUrl,
     }: {
       id: string;
       memoryLevel: SnapshotMemoryLevel;
       format: SnapshotFormat;
       memorySourcePubkey?: string | null;
+      avatarPngDataUrl?: string;
     }) =>
-      encodeAgentSnapshotForSend(id, memoryLevel, format, memorySourcePubkey),
+      encodeAgentSnapshotForSend(
+        id,
+        memoryLevel,
+        format,
+        memorySourcePubkey,
+        avatarPngDataUrl,
+      ),
   });
 }
 

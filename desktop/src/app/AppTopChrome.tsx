@@ -18,7 +18,7 @@ type AppTopChromeProps = {
   canGoForward: boolean;
   onGoBack: () => void;
   onGoForward: () => void;
-  hasWorkspaceRail?: boolean;
+  hasCommunityRail?: boolean;
 };
 
 // Fixed px on purpose (button box + glyph): these controls sit beside the
@@ -61,26 +61,26 @@ export function AppTopChrome({
   canGoForward,
   onGoBack,
   onGoForward,
-  hasWorkspaceRail = false,
+  hasCommunityRail = false,
 }: AppTopChromeProps) {
   const topChromeRef = React.useRef<HTMLDivElement>(null);
   const isFullscreen = useIsFullscreen();
-  // On macOS the native traffic-light buttons overlay the chrome, so the nav
-  // row clears their x-position. When the workspace rail is present it already
-  // occupies the far left, so the nav row only needs to clear the lights past
-  // the rail edge rather than the full offset. In fullscreen those buttons
-  // hide.
+  // On macOS the traffic-light buttons overlay the chrome (see
+  // `trafficLightPosition` in `tauri.conf.json`), so the nav row clears their
+  // x-position. When the community rail is present it already occupies the far
+  // left, so the nav row only needs to clear the lights past the rail edge
+  // rather than the full offset. In fullscreen those buttons hide.
   //
   // Fixed px on purpose: the native traffic lights do not scale with the app's
   // Cmd +/- text zoom (rem), so rem-based clearance shrinks under them when
   // zoomed out. This is a deliberate exception to the rem-first rule.
   const macChrome = isMacPlatform() && !isFullscreen;
   const navRowPaddingClass = macChrome
-    ? hasWorkspaceRail
+    ? hasCommunityRail
       ? "pl-[32px]"
       : "pl-[80px]"
     : "pl-3";
-  const navRowAlignmentClass = macChrome ? "-translate-y-[4px]" : null;
+  const navRowAlignmentClass = macChrome ? "translate-y-[3px]" : null;
 
   React.useEffect(() => {
     const topChrome = topChromeRef.current;

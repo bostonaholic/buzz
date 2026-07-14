@@ -39,9 +39,9 @@ interface ProfilePopoverProps {
   // primary PopoverTrigger and toggle the popover via controlled `open`.
   triggerContainerRef?: React.RefObject<HTMLElement | null>;
   // Optional slot rendered between the identity block and the menu items.
-  // Used by the sidebar to surface the workspace/relay selector inside the
+  // Used by the sidebar to surface the community/relay selector inside the
   // profile menu instead of on the sidebar card.
-  workspaceSwitcherSlot?: React.ReactNode;
+  communitySwitcherSlot?: React.ReactNode;
 }
 
 const MENU_ITEM_CLASS =
@@ -66,7 +66,7 @@ export function ProfilePopover({
   onSendFeedback,
   children,
   triggerContainerRef,
-  workspaceSwitcherSlot,
+  communitySwitcherSlot,
 }: ProfilePopoverProps) {
   const [statusDialogOpen, setStatusDialogOpen] = React.useState(false);
   const [presenceMenuOpen, setPresenceMenuOpen] = React.useState(false);
@@ -268,12 +268,12 @@ export function ProfilePopover({
               </button>
             ) : null}
 
-            {workspaceSwitcherSlot ? (
+            {communitySwitcherSlot ? (
               <>
                 <hr className="my-1 h-px border-0 bg-border" />
-                {/* ── Workspace / relay selector ─────────────────── */}
-                <div data-testid="profile-popover-workspace">
-                  {workspaceSwitcherSlot}
+                {/* ── Community / relay selector ─────────────────── */}
+                <div data-testid="profile-popover-community">
+                  {communitySwitcherSlot}
                 </div>
               </>
             ) : null}
