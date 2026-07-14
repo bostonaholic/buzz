@@ -9367,6 +9367,9 @@ export function maybeInstallE2eTauriMocks() {
         return true;
       case "copy_image_to_clipboard":
         return;
+      case "copy_text_to_clipboard":
+        await navigator.clipboard.writeText((payload as { text: string }).text);
+        return;
       case "get_event":
         return handleGetEvent(
           payload as Parameters<typeof handleGetEvent>[0],
@@ -9526,7 +9529,10 @@ export function maybeInstallE2eTauriMocks() {
       case "get_relay_self":
         if ((activeConfig?.mock?.relaySelfDelayMs ?? 0) > 0) {
           await new Promise((resolve) =>
-            window.setTimeout(resolve, activeConfig!.mock!.relaySelfDelayMs),
+            window.setTimeout(
+              resolve,
+              activeConfig?.mock?.relaySelfDelayMs ?? 0,
+            ),
           );
         }
         return activeConfig?.mock?.relaySelf ?? null;
