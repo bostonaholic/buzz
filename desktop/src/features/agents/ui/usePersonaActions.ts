@@ -18,6 +18,7 @@ import {
   type AgentSnapshotImportResult,
 } from "@/features/agents/hooks";
 import { getPersonaLibraryState } from "@/features/agents/lib/catalog";
+import { clearLegacyPersonaCatalogVisibility } from "@/features/agents/lib/legacyPersonaCatalogVisibility";
 import type {
   SnapshotFormat,
   SnapshotMemoryLevel,
@@ -48,33 +49,6 @@ import {
 import { meshPrepareRelayMeshClient } from "@/shared/api/tauriMesh";
 
 type PersonaFeedbackSurface = "catalog" | "library";
-
-const PERSONA_CATALOG_VISIBILITY_STORAGE_KEY =
-  "buzz-persona-catalog-visibility-v1";
-
-function readSharedCatalogPersonaIds(): string[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const raw = window.localStorage.getItem(
-      PERSONA_CATALOG_VISIBILITY_STORAGE_KEY,
-    );
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.filter((id): id is string => typeof id === "string");
-  } catch {
-    return [];
-  }
-}
 
 export function usePersonaActions() {
   const queryClient = useQueryClient();
@@ -115,9 +89,6 @@ export function usePersonaActions() {
   const [snapshotImportConfirmError, setSnapshotImportConfirmError] =
     React.useState<string | null>(null);
   const [isCatalogDialogOpen, setIsCatalogDialogOpen] = React.useState(false);
-  const [sharedCatalogPersonaIds] = React.useState<string[]>(
-    readSharedCatalogPersonaIds,
-  );
   const [personaNoticeMessage, setPersonaNoticeMessage] = React.useState<
     string | null
   >(null);
@@ -132,10 +103,9 @@ export function usePersonaActions() {
     React.useState(false);
 
   const personas = personasQuery.data ?? [];
-  const sharedCatalogPersonaIdSet = React.useMemo(
-    () => new Set(sharedCatalogPersonaIds),
-    [sharedCatalogPersonaIds],
-  );
+  React.useEffect(() => {
+    clearLegacyPersonaCatalogVisibility();
+  }, []);
   const availableRuntimes = React.useMemo(
     () =>
       (acpRuntimesQuery.data ?? []).filter(
@@ -145,8 +115,8 @@ export function usePersonaActions() {
     [acpRuntimesQuery.data],
   );
   const { catalogPersonas, libraryPersonas, personaLabelsById } = React.useMemo(
-    () => getPersonaLibraryState(personas, sharedCatalogPersonaIdSet),
-    [personas, sharedCatalogPersonaIdSet],
+    () => getPersonaLibraryState(personas),
+    [personas],
   );
 
   function clearFeedback(
@@ -465,7 +435,6 @@ export function usePersonaActions() {
     personaToExportSnapshot,
     setPersonaToExportSnapshot,
     handleExportSnapshot,
-    sharedCatalogPersonaIdSet,
     clearFeedback,
     snapshotImportState,
     snapshotImportResult,
