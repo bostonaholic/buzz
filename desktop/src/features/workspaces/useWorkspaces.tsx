@@ -21,6 +21,57 @@ import { removeChannelSnapshotForRelay } from "@/features/channels/channelSnapsh
 import { removeMessageSnapshotsForRelay } from "@/features/messages/lib/messageSnapshot";
 import { clearSavedWorkspaceSnapshot } from "@/features/agents/activeAgentTurnsStore";
 
+export type UpdateWorkspaceResult =
+  | { kind: "updated"; requiresReinit: boolean }
+  | { kind: "unchanged" }
+  | { kind: "duplicate-relay" }
+  | { kind: "not-found" };
+
+/**
+ * Pure decision logic for updateWorkspace — determines the outcome from a
+ * synchronous snapshot of workspaces without side effects.  Extracted so the
+ * 5-case result matrix is unit-testable outside React.
+ */
+export function resolveUpdateResult(
+  workspaces: Workspace[],
+  activeId: string | null,
+  id: string,
+  updates: Partial<
+    Pick<Workspace, "name" | "relayUrl" | "token" | "pubkey" | "reposDir">
+  >,
+): UpdateWorkspaceResult {
+  const current = workspaces.find((w) => w.id === id);
+  if (!current) return { kind: "not-found" };
+
+  if (
+    updates.relayUrl !== undefined &&
+    updates.relayUrl !== current.relayUrl &&
+    workspaces.some((w) => w.id !== id && w.relayUrl === updates.relayUrl)
+  ) {
+    return { kind: "duplicate-relay" };
+  }
+
+  const hasChange =
+    (updates.name !== undefined && updates.name !== current.name) ||
+    (updates.relayUrl !== undefined && updates.relayUrl !== current.relayUrl) ||
+    (updates.token !== undefined && updates.token !== current.token) ||
+    (updates.pubkey !== undefined && updates.pubkey !== current.pubkey) ||
+    (updates.reposDir !== undefined && updates.reposDir !== current.reposDir);
+
+  if (!hasChange) return { kind: "unchanged" };
+
+  const isActive = id === activeId;
+  const backendFieldsChanged =
+    isActive &&
+    ((updates.relayUrl !== undefined &&
+      updates.relayUrl !== current.relayUrl) ||
+      (updates.token !== undefined && updates.token !== current.token) ||
+      (updates.reposDir !== undefined &&
+        updates.reposDir !== current.reposDir));
+
+  return { kind: "updated", requiresReinit: backendFieldsChanged };
+}
+
 export type UseWorkspacesReturn = {
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
@@ -38,7 +89,7 @@ export type UseWorkspacesReturn = {
     updates: Partial<
       Pick<Workspace, "name" | "relayUrl" | "token" | "pubkey" | "reposDir">
     >,
-  ) => void;
+  ) => UpdateWorkspaceResult;
 };
 
 const WorkspacesContext = createContext<UseWorkspacesReturn | null>(null);
@@ -164,27 +215,29 @@ function useWorkspacesInternal(): UseWorkspacesReturn {
       updates: Partial<
         Pick<Workspace, "name" | "relayUrl" | "token" | "pubkey" | "reposDir">
       >,
-    ) => {
-      setWorkspacesState((prev) => {
-        // Prevent duplicate relay URLs across workspaces
-        if (
-          updates.relayUrl &&
-          prev.some((w) => w.id !== id && w.relayUrl === updates.relayUrl)
-        ) {
-          return prev;
+    ): UpdateWorkspaceResult => {
+      const result = resolveUpdateResult(
+        workspacesRef.current,
+        activeId,
+        id,
+        updates,
+      );
+
+      if (result.kind === "updated") {
+        setWorkspacesState((prev) => {
+          const next = prev.map((w) =>
+            w.id === id ? { ...w, ...updates } : w,
+          );
+          saveWorkspaces(next);
+          return next;
+        });
+
+        if (result.requiresReinit) {
+          setReinitKey((k) => k + 1);
         }
-        const next = prev.map((w) => (w.id === id ? { ...w, ...updates } : w));
-        saveWorkspaces(next);
-        return next;
-      });
-      // If the active workspace's relay URL or token changed, bump reinitKey
-      // so the React tree remounts with the new config.
-      if (
-        id === activeId &&
-        (updates.relayUrl || updates.token !== undefined)
-      ) {
-        setReinitKey((k) => k + 1);
       }
+
+      return result;
     },
     [activeId],
   );

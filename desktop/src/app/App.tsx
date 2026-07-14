@@ -26,6 +26,8 @@ import { useWorkspaceInit } from "@/features/workspaces/useWorkspaceInit";
 import { useNestNotifications } from "@/features/workspaces/useNestNotifications";
 import { useWorkspaces } from "@/features/workspaces/useWorkspaces";
 import { WelcomeSetup } from "@/features/workspaces/ui/WelcomeSetup";
+import { WorkspaceApplyErrorScreen } from "@/features/workspaces/ui/WorkspaceApplyErrorScreen";
+import { WorkspaceChangeOverlay } from "@/features/workspaces/ui/WorkspaceChangeOverlay";
 import { createBuzzQueryClient } from "@/shared/api/queryClient";
 import { isSharedIdentity as isSharedIdentityCmd } from "@/shared/api/tauri";
 import { listenForDeepLinks } from "@/shared/deep-link";
@@ -273,19 +275,15 @@ function WorkspaceQueryProvider({ children }: { children: ReactNode }) {
 }
 
 function AppReady({
-  canBackToWorkspaceSetup,
   isCompletingFirstRunWorkspace,
   isSharedIdentity,
   isWorkspaceSwitch,
   onFirstRunWorkspaceSettled,
-  onBackToWorkspaceSetup,
 }: {
-  canBackToWorkspaceSetup: boolean;
   isCompletingFirstRunWorkspace: boolean;
   isSharedIdentity: boolean;
   isWorkspaceSwitch: boolean;
   onFirstRunWorkspaceSettled: () => void;
-  onBackToWorkspaceSetup: () => void;
 }) {
   const onboarding = useAppOnboardingState(isSharedIdentity);
 
@@ -311,11 +309,9 @@ function AppReady({
     return (
       <OnboardingFlow
         actions={onboarding.flow.actions}
-        canBackToWorkspaceSetup={canBackToWorkspaceSetup}
         identityLost={onboarding.identityLost}
         initialProfile={onboarding.flow.initialProfile}
         key={onboarding.currentPubkey ?? "anonymous"}
-        onBackToWorkspaceSetup={onBackToWorkspaceSetup}
       />
     );
   }
@@ -355,16 +351,12 @@ export function App() {
     activeWorkspace,
     reinitKey,
     addWorkspace,
-    clearWorkspaces,
     switchWorkspace,
     reconnectWorkspace,
   } = useWorkspaces();
   const [isCompletingFirstRunWorkspace, setIsCompletingFirstRunWorkspace] =
     useState(false);
-  const [canBackToWorkspaceSetup, setCanBackToWorkspaceSetup] = useState(false);
-  const [welcomeTransitionMode, setWelcomeTransitionMode] = useState<
-    "initial" | "backward"
-  >("initial");
+  const [isWorkspaceChangeOpen, setIsWorkspaceChangeOpen] = useState(false);
 
   useEffect(() => {
     const unlisten = listenForDeepLinks({
@@ -403,21 +395,12 @@ export function App() {
 
   const handleSetupComplete = useCallback(
     (workspace: Workspace) => {
-      setWelcomeTransitionMode("initial");
       setIsCompletingFirstRunWorkspace(true);
-      setCanBackToWorkspaceSetup(true);
       const workspaceId = addWorkspace(workspace);
       switchWorkspace(workspaceId);
     },
     [addWorkspace, switchWorkspace],
   );
-
-  const handleBackToWorkspaceSetup = useCallback(() => {
-    setWelcomeTransitionMode("backward");
-    setIsCompletingFirstRunWorkspace(false);
-    setCanBackToWorkspaceSetup(false);
-    clearWorkspaces();
-  }, [clearWorkspaces]);
 
   const handleFirstRunWorkspaceSettled = useCallback(() => {
     setIsCompletingFirstRunWorkspace(false);
@@ -437,9 +420,26 @@ export function App() {
     return (
       <WelcomeSetup
         defaultRelayUrl={workspace.defaultRelayUrl}
-        initialTransitionMode={welcomeTransitionMode}
         onComplete={handleSetupComplete}
       />
+    );
+  }
+
+  // Surface apply failures so the user can retry or change workspace.
+  if ("error" in workspace && workspace.error) {
+    return (
+      <>
+        <WorkspaceApplyErrorScreen
+          error={workspace.error}
+          onChangeWorkspace={() => setIsWorkspaceChangeOpen(true)}
+          onRetry={reconnectWorkspace}
+        />
+        {isWorkspaceChangeOpen ? (
+          <WorkspaceChangeOverlay
+            onClose={() => setIsWorkspaceChangeOpen(false)}
+          />
+        ) : null}
+      </>
     );
   }
 
@@ -466,13 +466,11 @@ export function App() {
   return (
     <WorkspaceQueryProvider key={workspaceKey}>
       <AppReady
-        canBackToWorkspaceSetup={canBackToWorkspaceSetup}
         isCompletingFirstRunWorkspace={isCompletingFirstRunWorkspace}
         isWorkspaceSwitch={isWorkspaceSwitch}
         key={workspaceKey}
         isSharedIdentity={sharedIdentity}
         onFirstRunWorkspaceSettled={handleFirstRunWorkspaceSettled}
-        onBackToWorkspaceSetup={handleBackToWorkspaceSetup}
       />
       {showBootSplashOverlay ? (
         <div

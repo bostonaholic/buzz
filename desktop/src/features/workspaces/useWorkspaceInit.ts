@@ -48,7 +48,8 @@ type WorkspaceInitResult =
       needsSetup: true;
       defaultRelayUrl: string;
     }
-  | { isReady: false; needsSetup: false; appliedKey: string | null };
+  | { isReady: false; needsSetup: false; appliedKey: string | null }
+  | { isReady: false; needsSetup: false; appliedKey: null; error: string };
 
 /**
  * Applies the active workspace config to the Tauri backend and resets
@@ -169,7 +170,15 @@ export function useWorkspaceInit(
         // the loading gate (isReady:false, no appliedKey) instead.
         console.error("Failed to apply workspace to backend:", error);
         if (!cancelled) {
-          setResult({ isReady: false, needsSetup: false, appliedKey: null });
+          setResult({
+            isReady: false,
+            needsSetup: false,
+            appliedKey: null,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to apply workspace configuration",
+          });
         }
         return;
       }
