@@ -76,21 +76,6 @@ function readSharedCatalogPersonaIds(): string[] {
   }
 }
 
-function writeSharedCatalogPersonaIds(ids: string[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(
-      PERSONA_CATALOG_VISIBILITY_STORAGE_KEY,
-      JSON.stringify(ids),
-    );
-  } catch {
-    // Catalog visibility is a local convenience setting; ignore storage failures.
-  }
-}
-
 export function usePersonaActions() {
   const queryClient = useQueryClient();
   const personasQuery = usePersonasQuery();
@@ -112,8 +97,10 @@ export function usePersonaActions() {
     React.useState<PersonaDialogState | null>(null);
   const [personaToDelete, setPersonaToDelete] =
     React.useState<AgentPersona | null>(null);
-  const [personaToShare, setPersonaToShare] =
-    React.useState<AgentPersona | null>(null);
+  const [personaToShare, setPersonaToShare] = React.useState<{
+    persona: AgentPersona;
+    linkedAgentPubkey: string | null;
+  } | null>(null);
   const [personaToExportSnapshot, setPersonaToExportSnapshot] = React.useState<{
     persona: AgentPersona;
     linkedAgentPubkey: string | null;
@@ -128,9 +115,9 @@ export function usePersonaActions() {
   const [snapshotImportConfirmError, setSnapshotImportConfirmError] =
     React.useState<string | null>(null);
   const [isCatalogDialogOpen, setIsCatalogDialogOpen] = React.useState(false);
-  const [sharedCatalogPersonaIds, setSharedCatalogPersonaIds] = React.useState<
-    string[]
-  >(readSharedCatalogPersonaIds);
+  const [sharedCatalogPersonaIds] = React.useState<string[]>(
+    readSharedCatalogPersonaIds,
+  );
   const [personaNoticeMessage, setPersonaNoticeMessage] = React.useState<
     string | null
   >(null);
@@ -388,22 +375,12 @@ export function usePersonaActions() {
     setPersonaToDelete(persona);
   }
 
-  function openShare(persona: AgentPersona) {
-    clearFeedback("library");
-    setPersonaToShare(persona);
-  }
-
-  function openShareExportSnapshot(persona: AgentPersona) {
-    setPersonaToShare(null);
-    openExportSnapshot(persona, undefined);
-  }
-
-  function openExportSnapshot(
+  function openShare(
     persona: AgentPersona,
     linkedAgent: ManagedAgent | undefined,
   ) {
     clearFeedback("library");
-    setPersonaToExportSnapshot({
+    setPersonaToShare({
       persona,
       linkedAgentPubkey: linkedAgent?.pubkey ?? null,
     });
@@ -440,29 +417,6 @@ export function usePersonaActions() {
         },
       },
     );
-  }
-
-  function setPersonaCatalogVisibility(
-    persona: AgentPersona,
-    visible: boolean,
-  ) {
-    if (persona.isBuiltIn) {
-      return;
-    }
-
-    clearFeedback("library");
-    setSharedCatalogPersonaIds((current) => {
-      const next = new Set(current);
-      if (visible) {
-        next.add(persona.id);
-      } else {
-        next.delete(persona.id);
-      }
-
-      const ids = Array.from(next);
-      writeSharedCatalogPersonaIds(ids);
-      return ids;
-    });
   }
 
   const isPending =
@@ -508,12 +462,9 @@ export function usePersonaActions() {
     openCatalog,
     openDelete,
     openShare,
-    openExportSnapshot,
-    openShareExportSnapshot,
     personaToExportSnapshot,
     setPersonaToExportSnapshot,
     handleExportSnapshot,
-    setPersonaCatalogVisibility,
     sharedCatalogPersonaIdSet,
     clearFeedback,
     snapshotImportState,
